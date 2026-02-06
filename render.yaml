@@ -1,0 +1,37 @@
+services:
+  - type: web
+    name: hrms-backend
+    runtime: node
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: CLIENT_URL
+        fromSecret: CLIENT_URL
+      - key: POSTGRES_URL
+        fromSecret: POSTGRES_URL
+      - key: SKIP_DB_CREATE
+        value: "true"
+      - key: DB_SYNC
+        value: "true"
+      - key: DB_SYNC_ALTER
+        value: "true"
+      - key: ALLOW_VERCEL_PREVIEWS
+        value: "true"
+      - key: JWT_SECRET
+        fromSecret: JWT_SECRET
+      - key: ACCESS_TOKEN_SECRET
+        fromSecret: ACCESS_TOKEN_SECRET
+      - key: REFRESH_TOKEN_SECRET
+        fromSecret: REFRESH_TOKEN_SECRET
+      - key: RESET_TOKEN_SECRET
+        fromSecret: RESET_TOKEN_SECRET
+      - key: SMTP_HOST
+        fromSecret: SMTP_HOST
+      - key: SMTP_PORT
+        fromSecret: SMTP_PORT
+      - key: SMTP_USER
+        fromSecret: SMTP_USER
+      - key: SMTP_PASS
+        fromSecret: SMTP_PASS
