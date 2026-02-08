@@ -2,18 +2,17 @@ const pg = require("pg");
 const { Sequelize } = require("sequelize");
 require("dotenv").config();
 
+const isProduction = process.env.NODE_ENV === "production";
+const useSsl = isProduction || !!process.env.POSTGRES_URL;
+
 const commonOptions = {
   dialect: "postgres",
   dialectModule: pg,
   logging: false,
   dialectOptions: {
-    ssl:
-      process.env.NODE_ENV === "production"
-        ? {
-            require: true,
-            rejectUnauthorized: false,
-          }
-        : false,
+    ssl: useSsl
+      ? { require: true, rejectUnauthorized: false }
+      : false,
     connectTimeout: 60000,
   },
   pool: {
@@ -24,8 +23,15 @@ const commonOptions = {
   },
 };
 
+// POSTGRES_URL (Render, etc.) always requires SSL
 const sequelize = process.env.POSTGRES_URL
-  ? new Sequelize(process.env.POSTGRES_URL, commonOptions)
+  ? new Sequelize(process.env.POSTGRES_URL, {
+      ...commonOptions,
+      dialectOptions: {
+        ...commonOptions.dialectOptions,
+        ssl: { require: true, rejectUnauthorized: false },
+      },
+    })
   : new Sequelize({
       database: process.env.DB_NAME || "hrms_db",
       username: process.env.DB_USER || "postgres",
