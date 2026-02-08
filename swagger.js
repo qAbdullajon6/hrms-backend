@@ -1,6 +1,15 @@
 const swaggerJsdoc = require('swagger-jsdoc');
 const swaggerUi = require('swagger-ui-express');
 
+// Swagger "Try it out" requests go to this URL. Render sets RENDER_EXTERNAL_URL.
+const port = process.env.PORT || 5000;
+const baseUrl =
+  process.env.RENDER_EXTERNAL_URL ||
+  process.env.API_BASE_URL ||
+  process.env.BACKEND_URL ||
+  `http://localhost:${port}`;
+const serverUrl = baseUrl.replace(/\/$/, ''); // no trailing slash
+
 const options = {
   definition: {
     openapi: '3.0.0',
@@ -10,14 +19,8 @@ const options = {
       description: 'Human Resource Management System API',
     },
     servers: [
-      {
-        url: 'http://localhost:5000',
-        description: 'Development server',
-      },
-      {
-        url: 'https://your-render-app.onrender.com',
-        description: 'Production server',
-      },
+      { url: serverUrl, description: 'Current server' },
+      { url: 'http://localhost:5000', description: 'Local' },
     ],
     components: {
       securitySchemes: {
