@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "main": "server.js",
   "scripts": {
+    "build": "node -e \"console.log('Backend: no build step')\"",
     "start": "node server.js",
     "dev": "nodemon server.js",
     "create-db": "node create-db.js",
