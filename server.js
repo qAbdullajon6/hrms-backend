@@ -9,6 +9,14 @@ const authRouter = require("./routes/auth.routes");
 const employeesRouter = require("./routes/employees.routes");
 const lookupsRouter = require("./routes/lookups.routes");
 const dashboardRouter = require("./routes/dashboard.routes");
+const attendanceRouter = require("./routes/attendance.routes");
+const candidatesRouter = require("./routes/candidates.routes");
+const holidaysRouter = require("./routes/holidays.routes");
+const jobsRouter = require("./routes/jobs.routes");
+const leavesRouter = require("./routes/leaves.routes");
+const notificationsRouter = require("./routes/notifications.routes");
+const payrollRouter = require("./routes/payroll.routes");
+const settingsRouter = require("./routes/settings.routes");
 const { swaggerUi, specs } = require("./swagger");
 
 function parseAllowedOrigins() {
@@ -20,7 +28,7 @@ function parseAllowedOrigins() {
   return list;
 }
 
-function corsOriginFn(allowed) {
+function corsOriginFn(allowed, serverOrigin) {
   const allowVercelPreviews = process.env.ALLOW_VERCEL_PREVIEWS === "true";
 
   return (origin, cb) => {
@@ -28,6 +36,7 @@ function corsOriginFn(allowed) {
     if (!origin) return cb(null, true);
 
     if (allowed.includes(origin)) return cb(null, true);
+    if (serverOrigin && origin === serverOrigin) return cb(null, true); // Swagger / health from same host
     if (allowVercelPreviews && /^https:\/\/.+\.vercel\.app$/.test(origin)) return cb(null, true);
 
     return cb(new Error(`CORS blocked for origin: ${origin}`));
@@ -55,9 +64,10 @@ async function starter() {
     }
 
     const allowedOrigins = parseAllowedOrigins();
+    const serverOrigin = process.env.NODE_ENV !== "production" ? `http://localhost:${PORT}` : null;
     app.use(
       cors({
-        origin: corsOriginFn(allowedOrigins),
+        origin: corsOriginFn(allowedOrigins, serverOrigin),
         credentials: true,
       })
     );
@@ -84,6 +94,14 @@ async function starter() {
     app.use("/api/employees", employeesRouter);
     app.use("/api/lookups", lookupsRouter);
     app.use("/api/dashboard", dashboardRouter);
+    app.use("/api/attendance", attendanceRouter);
+    app.use("/api/candidates", candidatesRouter);
+    app.use("/api/holidays", holidaysRouter);
+    app.use("/api/jobs", jobsRouter);
+    app.use("/api/leaves", leavesRouter);
+    app.use("/api/notifications", notificationsRouter);
+    app.use("/api/payroll", payrollRouter);
+    app.use("/api/settings", settingsRouter);
 
     // 404 handler
     app.use((req, res) => {

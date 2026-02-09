@@ -37,12 +37,18 @@ const options = {
       },
     ],
   },
-  // Only scan ACTIVE API route files to avoid old/unused docs
   apis: [
     './routes/auth.routes.js',
     './routes/employees.routes.js',
     './routes/lookups.routes.js',
     './routes/dashboard.routes.js',
+    './routes/candidates.routes.js',
+    './routes/holidays.routes.js',
+    './routes/jobs.routes.js',
+    './routes/leaves.routes.js',
+    './routes/attendance.routes.js',
+    './routes/notifications.routes.js',
+    './routes/payroll.routes.js',
   ],
 };
 

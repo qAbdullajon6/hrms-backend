@@ -22,6 +22,30 @@ const {
   generateCode,
 } = require("../utils/token");
 
+function send2FACodeToEmail(email, code) {
+  return new Promise((resolve, reject) => {
+    const transporter = nodemailer.createTransport({
+      host: process.env.SMTP_HOST,
+      port: process.env.SMTP_PORT,
+      secure: false,
+      auth: {
+        user: process.env.SMTP_USER,
+        pass: process.env.SMTP_PASS,
+      },
+    });
+    const mailOptions = {
+      from: process.env.SMTP_USER,
+      to: email,
+      subject: "HRMS – Ikki bosqichli tasdiqlash kodi",
+      text: `Tizimga kirish uchun tasdiqlash kodingiz: ${code}\n\nKod 10 daqiqa davomida amal qiladi.`,
+    };
+    transporter.sendMail(mailOptions, (err, info) => {
+      if (err) return reject(err);
+      resolve(info);
+    });
+  });
+}
+
 exports.login = async (req, res) => {
   const { email, password } = req.body;
 
@@ -32,8 +56,33 @@ exports.login = async (req, res) => {
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) return res.status(400).json({ message: "Invalid password" });
 
+    if (user.twoFactorEnabled) {
+      await ResetCode.destroy({ where: { email, purpose: "2fa" } });
+      const verificationCode = String(generateCode());
+      const expiryTime = new Date(Date.now() + 10 * 60 * 1000);
+      await ResetCode.create({
+        email,
+        code: verificationCode,
+        expiry: expiryTime,
+        purpose: "2fa",
+      });
+      try {
+        await send2FACodeToEmail(email, verificationCode);
+      } catch (emailErr) {
+        console.error("2FA email send error:", emailErr);
+        return res.status(500).json({ message: "Email yuborishda xatolik" });
+      }
+      const pending2FAToken = jwt.sign(
+        { email, userId: user.id, purpose: "2fa" },
+        process.env.ACCESS_TOKEN_SECRET,
+        { expiresIn: "10m" }
+      );
+      return res.json({ requires2FA: true, email, pending2FAToken });
+    }
+
     const payload = {
       userId: user.id,
+      role: user.role || "employee",
     };
     const accessToken = generateAccessToken(payload);
     const refreshToken = generateRefreshToken(payload);
@@ -42,8 +91,6 @@ exports.login = async (req, res) => {
     res.cookie("refreshToken", refreshToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production" ? true : false,
-      // Frontend (Vercel) and backend (Render) are on different origins in production,
-      // so we must use SameSite=None + Secure for cookies to be sent.
       sameSite: process.env.NODE_ENV === "production" ? "None" : "Lax",
       maxAge: 7 * 24 * 60 * 60 * 1000,
     });
@@ -58,6 +105,103 @@ exports.login = async (req, res) => {
     res.status(500).json({ message: "Server error" });
   }
 };
+
+exports.verify2FA = async (req, res) => {
+  const { email, code, pending2FAToken } = req.body;
+  try {
+    if (!email || !code || !pending2FAToken) {
+      return res.status(400).json({ message: "email, code va pending2FAToken kerak" });
+    }
+    let decoded;
+    try {
+      decoded = jwt.verify(pending2FAToken, process.env.ACCESS_TOKEN_SECRET);
+    } catch {
+      return res.status(400).json({ message: "Sessiya tugadi. Qaytadan login qiling." });
+    }
+    if (decoded.purpose !== "2fa" || decoded.email !== email) {
+      return res.status(400).json({ message: "Noto'g'ri sessiya" });
+    }
+    const record = await ResetCode.findOne({ where: { email, purpose: "2fa" } });
+    if (!record) return res.status(400).json({ message: "Kod topilmadi. Qaytadan urinib ko'ring." });
+    if (record.code !== String(code)) {
+      return res.status(400).json({ message: "Kod noto'g'ri." });
+    }
+    if (new Date() > record.expiry) {
+      await ResetCode.destroy({ where: { id: record.id } });
+      return res.status(400).json({ message: "Kod muddati tugagan." });
+    }
+    await ResetCode.destroy({ where: { id: record.id } });
+
+    const user = await User.findByPk(decoded.userId);
+    if (!user) return res.status(400).json({ message: "Foydalanuvchi topilmadi." });
+
+    const payload = { userId: user.id, role: user.role || "employee" };
+    const accessToken = generateAccessToken(payload);
+    const refreshToken = generateRefreshToken(payload);
+    await addRefreshToken(refreshToken, user.id);
+    res.cookie("refreshToken", refreshToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production" ? true : false,
+      sameSite: process.env.NODE_ENV === "production" ? "None" : "Lax",
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+    });
+    user.refreshToken = refreshToken;
+    await user.save();
+
+    const userSafe = user.toJSON();
+    delete userSafe.password;
+    res.json({ accessToken, user: userSafe });
+  } catch (err) {
+    console.error("verify2FA error:", err);
+    res.status(500).json({ message: "Server error" });
+  }
+};
+
+exports.create = async (req, res) => {
+  const { email, password } = req.body;
+
+  try {
+    const existUser = await User.findOne({ where: { email } });
+    if (existUser) {
+      return res.status(400).json({ message: "Email already exists" });
+    }
+
+    const hash = await hashedPassword(password);
+
+    const newUser = await User.create({
+      email,
+      password: hash,
+    });
+
+    res.status(201).json({ message: "User created", user: newUser });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Server error" });
+  }
+};
+
+exports.updateMe = async (req, res) => {
+  const { userId } = req.user;
+  const { twoFactorEnabled, emailNotificationsEnabled } = req.body;
+  try {
+    const updates = {};
+    if (typeof twoFactorEnabled === "boolean") updates.twoFactorEnabled = twoFactorEnabled;
+    if (typeof emailNotificationsEnabled === "boolean") updates.emailNotificationsEnabled = emailNotificationsEnabled;
+    if (Object.keys(updates).length === 0) {
+      return res.status(400).json({ message: "No valid fields to update (twoFactorEnabled, emailNotificationsEnabled)" });
+    }
+    const user = await User.findByPk(userId);
+    if (!user) return res.status(404).json({ message: "User not found" });
+    await user.update(updates);
+    const userSafe = user.toJSON();
+    delete userSafe.password;
+    return res.status(200).json(userSafe);
+  } catch (err) {
+    console.error("updateMe error:", err);
+    return res.status(500).json({ message: "Server error" });
+  }
+};
+
 exports.userMe = async (req, res) => {
   const { userId } = req.user;
   try {
@@ -141,28 +285,6 @@ exports.userMe = async (req, res) => {
   }
 };
 
-exports.create = async (req, res) => {
-  const { email, password } = req.body;
-
-  try {
-    const existUser = await User.findOne({ where: { email } });
-    if (existUser) {
-      return res.status(400).json({ message: "Email already exists" });
-    }
-
-    const hash = await hashedPassword(password);
-
-    const newUser = await User.create({
-      email,
-      password: hash,
-    });
-
-    res.status(201).json({ message: "User created", user: newUser });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: "Server error" });
-  }
-};
 exports.sendForgotPassword = async (req, res) => {
   const { email } = req.body;
   try {
@@ -276,7 +398,7 @@ exports.changePass = async (req, res) => {
 };
 exports.refreshToken = async (req, res) => {
   const { refreshToken } = req.cookies;
-  
+
   if (!refreshToken) {
     return res.status(401).json({ message: "Refresh token not found" });
   }
@@ -289,7 +411,15 @@ exports.refreshToken = async (req, res) => {
       return res.status(403).json({ message: "Invalid refresh token" });
     }
 
-    const accessToken = generateAccessToken({ userId: existToken.userId });
+    const user = await User.findByPk(existToken.userId, { attributes: ["id", "role"] });
+    if (!user) {
+      return res.status(403).json({ message: "User not found" });
+    }
+
+    const accessToken = generateAccessToken({
+      userId: user.id,
+      role: user.role || "employee",
+    });
 
     return res.json({ accessToken });
   } catch (error) {

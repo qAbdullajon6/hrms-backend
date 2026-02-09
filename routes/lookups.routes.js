@@ -1,6 +1,11 @@
 const express = require("express");
 const { authenticateToken } = require("../middlewares/auth.middleware");
-const { getDepartments, getOfficeLocations } = require("../controllers/lookups.controller");
+const {
+  getDepartments,
+  getDepartmentsWithMembers,
+  getDepartmentById,
+  getOfficeLocations,
+} = require("../controllers/lookups.controller");
 
 const router = express.Router();
 
@@ -37,6 +42,8 @@ const router = express.Router();
  *                       isActive: { type: boolean }
  */
 router.get("/departments", authenticateToken, getDepartments);
+router.get("/departments/with-members", authenticateToken, getDepartmentsWithMembers);
+router.get("/departments/:id", authenticateToken, getDepartmentById);
 
 /**
  * @swagger

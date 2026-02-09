@@ -1,6 +1,10 @@
 # HRMS Backend API
 
-Human Resource Management System backend built with Node.js, Express, PostgreSQL, and Sequelize.
+Human Resource Management System (HRMS) ning backend qismi — Node.js, Express, PostgreSQL va Sequelize orqali xodimlar, auth, davomat, ta’tillar, maosh, vakansiyalar, nomzodlar va boshqa modullar uchun REST API.
+
+## Loyiha haqida
+
+Backend JWT orqali foydalanuvchilarni autentifikatsiya qiladi, rollar (admin, hr, employee) bo‘yicha ruxsat beradi. API Swagger UI orqali hujjatlangan (`/api-docs`). PostgreSQL bazasida xodimlar, bo‘limlar, ofislar, davomat, ta’tillar, maosh, bayramlar, vakansiyalar, nomzodlar va bildirishnomalar saqlanadi. Deploy uchun Render, Railway va boshqa Node.js qo‘llab-quvvatlovchi platformalarda ishlatish mumkin.
 
 ## Features
 
@@ -11,6 +15,8 @@ Human Resource Management System backend built with Node.js, Express, PostgreSQL
 - Swagger API Documentation
 - PostgreSQL Database
 - CORS Support
+- 2FA (two-factor) va email bildirishnomalar sozlamalari
+- Health check (`/health`) deploy va monitoring uchun
 
 ## Tech Stack
 
@@ -118,9 +124,10 @@ npm run db:drop       # Drop all tables
 
 ## API Documentation
 
-Once the server is running, visit:
-- **API Docs**: `http://localhost:5000/api`
-- **API Base URL**: `http://localhost:5000/api`
+Server ishlaganda:
+- **Swagger UI**: `http://localhost:5000/api-docs` — barcha endpointlar va "Try it out"
+- **API asosiy URL**: `http://localhost:5000/api`
+- **Health**: `http://localhost:5000/health`
 
 ## Default Admin User
 

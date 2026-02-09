@@ -14,6 +14,11 @@ const ResetCode = sequelize.define("ResetCode", {
     type: DataTypes.DATE,
     allowNull: false,
   },
+  purpose: {
+    type: DataTypes.STRING,
+    allowNull: true,
+    defaultValue: "password_reset",
+  },
 });
 
 module.exports = ResetCode;

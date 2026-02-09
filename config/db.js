@@ -156,6 +156,15 @@ const initializeDatabase = async () => {
       // Tablelarni yaratish/sync qilish
       const { Department, OfficeLocation } = require("../models/relations");
 
+      // Payrolls: FK sync dan oldin olib tashlanadi, noto‘g‘ri employeeId lar NULL qilinadi (sync xatosi bo‘lmasin)
+      try {
+        await sequelize.query('ALTER TABLE "Payrolls" DROP CONSTRAINT IF EXISTS "Payrolls_employeeId_fkey";');
+        await sequelize.query(`
+          UPDATE "Payrolls" p SET "employeeId" = NULL
+          WHERE p."employeeId" IS NOT NULL AND NOT EXISTS (SELECT 1 FROM "Employees" e WHERE e.id = p."employeeId");
+        `);
+      } catch (_) {}
+
       await sequelize.sync({ force: false, alter });
       console.log("✅ Barcha tablelar muvaffaqiyatli yaratildi/yangilandi");
 

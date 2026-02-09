@@ -4,7 +4,8 @@ const router = express.Router();
 const {
   getDashboardStats,
   getAttendanceOverview,
-  getRecentAttendance
+  getRecentAttendance,
+  getSchedule,
 } = require("../controllers/dashboard.controller");
 const { authenticateToken } = require("../middlewares/auth.middleware");
 
@@ -128,5 +129,7 @@ router.get('/attendance-overview', authenticateToken, getAttendanceOverview);
  *         description: Unauthorized
  */
 router.get('/recent-attendance', authenticateToken, getRecentAttendance);
+
+router.get('/schedule', authenticateToken, getSchedule);
 
 module.exports = router;

@@ -11,6 +11,14 @@ const RefreshToken = require("./tokens/token.model");
 const User = require("./user/user.model");
 const Attendance = require("./attendance/attendance.model");
 const Project = require("./project/project.model");
+const Holiday = require("./holiday/holiday.model");
+const Candidate = require("./candidate/candidate.model");
+const Job = require("./job/job.model");
+const Leave = require("./leave/leave.model");
+const Notification = require("./notification/notification.model");
+const Payroll = require("./payroll/payroll.model");
+const ScheduleEvent = require("./schedule/scheduleEvent.model");
+const Settings = require("./settings/settings.model");
 
 // V2 recommended relationships
 EmployeeProfessional.belongsTo(Employee, { foreignKey: "employeeId", onDelete: "CASCADE" });
@@ -40,6 +48,10 @@ Employee.hasMany(Attendance, { foreignKey: "employeeId", onDelete: "CASCADE" });
 Project.belongsTo(Employee, { foreignKey: "managerId", as: "manager", onDelete: "SET NULL" });
 Employee.hasMany(Project, { foreignKey: "managerId", as: "managedProjects", onDelete: "SET NULL" });
 
+// Payroll relationships (constraints: false — DB da FK qo‘yilmaydi, eski yozuvlar buzilmasin)
+Payroll.belongsTo(Employee, { foreignKey: "employeeId", onDelete: "SET NULL", constraints: false });
+Employee.hasMany(Payroll, { foreignKey: "employeeId", constraints: false });
+
 module.exports = {
   User,
   RefreshToken,
@@ -53,4 +65,12 @@ module.exports = {
   OfficeLocation,
   Attendance,
   Project,
+  Holiday,
+  Candidate,
+  Job,
+  Leave,
+  Notification,
+  Payroll,
+  ScheduleEvent,
+  Settings,
 };

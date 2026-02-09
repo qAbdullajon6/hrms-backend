@@ -13,6 +13,7 @@
     "migrate:undo": "npx sequelize-cli db:migrate:undo",
     "seed": "npx sequelize-cli db:seed:all",
     "seed:undo": "npx sequelize-cli db:seed:undo:all",
+    "seed:test": "npx sequelize-cli db:seed --seed 20260206190000-seed-all-test-data.js",
     "db:drop": "npx sequelize-cli db:migrate:undo:all"
   },
   "keywords": [],

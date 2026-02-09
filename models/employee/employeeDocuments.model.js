@@ -16,7 +16,7 @@ const EmployeeDocuments = sequelize.define(
     },
     appointmentLetterUrl: {
       type: DataTypes.STRING,
-      allowNull: false,
+      allowNull: true,
     },
     salarySlipUrls: {
       type: DataTypes.JSON,

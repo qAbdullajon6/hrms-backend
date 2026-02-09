@@ -3,12 +3,14 @@ const express = require("express");
 const router = express.Router();
 const {
   login,
+  verify2FA,
   refreshToken,
   create,
   sendForgotPassword,
   verifyCode,
   changePass,
   userMe,
+  updateMe,
   setPassword,
 } = require("../controllers/auth.controller");
 const { authenticateToken } = require("../middlewares/auth.middleware");
@@ -41,6 +43,10 @@ const { validateRegister } = require("../middlewares/validate.middleware");
  *         updatedAt:
  *           type: string
  *           format: date-time
+ *         role:
+ *           type: string
+ *           enum: [admin, hr, manager, designer, developer, employee]
+ *           description: User role (in JWT and /user/me)
  *     Login:
  *       type: object
  *       required:
@@ -87,23 +93,26 @@ router.post("/login", validateRegister, login);
 
 /**
  * @swagger
- * /api/auth/user/me:
- *   get:
- *     summary: Get current user info
+ * /api/auth/verify-2fa:
+ *   post:
+ *     summary: Verify 2FA code and complete login
  *     tags: [Auth]
- *     security:
- *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [email, code, pending2FAToken]
+ *             properties:
+ *               email: { type: string }
+ *               code: { type: string }
+ *               pending2FAToken: { type: string }
  *     responses:
- *       200:
- *         description: User info retrieved successfully
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/User'
- *       401:
- *         description: Unauthorized
+ *       200: { description: Login successful, returns accessToken and user }
+ *       400: { description: Invalid or expired code }
  */
-router.get('/user/me', authenticateToken, userMe);
+router.post("/verify-2fa", verify2FA);
 
 /**
  * @swagger
@@ -124,6 +133,45 @@ router.get('/user/me', authenticateToken, userMe);
  *         description: User already exists
  */
 router.post("/create", validateRegister, create);
+
+/**
+ * @swagger
+ * /api/auth/user/me:
+ *   get:
+ *     summary: Get current user info
+ *     tags: [Auth]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: User info retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/User'
+ *       401:
+ *         description: Unauthorized
+ */
+router.get("/user/me", authenticateToken, userMe);
+
+/**
+ * @swagger
+ * /api/auth/user/me:
+ *   patch:
+ *     summary: Update current user (e.g. 2FA preference)
+ *     tags: [Auth]
+ *     security: [{ bearerAuth: [] }]
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               twoFactorEnabled: { type: boolean }
+ *     responses:
+ *       200: { description: Updated user }
+ */
+router.patch("/user/me", authenticateToken, updateMe);
 
 /**
  * @swagger

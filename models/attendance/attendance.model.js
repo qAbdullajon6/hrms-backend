@@ -40,6 +40,14 @@ const Attendance = sequelize.define(
     notes: {
       type: DataTypes.TEXT,
       allowNull: true
+    },
+    breakStart: {
+      type: DataTypes.DATE,
+      allowNull: true
+    },
+    breakEnd: {
+      type: DataTypes.DATE,
+      allowNull: true
     }
   },
   { timestamps: true }

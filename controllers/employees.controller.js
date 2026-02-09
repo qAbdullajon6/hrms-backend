@@ -9,8 +9,13 @@ const {
   InviteToken,
   Department,
   OfficeLocation,
+  User,
+  Attendance,
+  Leave,
+  Project,
 } = require("../models/relations");
 const { sendEmail } = require("../utils/sendEmail");
+const { hashedPassword } = require("../utils/hash");
 
 function parseJsonField(value, fallback = {}) {
   if (!value) return fallback;
@@ -42,7 +47,11 @@ function employeeIncludes() {
       include: [{ model: Department, required: false }, { model: OfficeLocation, required: false }],
     },
     { model: EmployeeDocuments, required: false },
-    { model: EmployeeAccount, required: false },
+    {
+      model: EmployeeAccount,
+      required: false,
+      include: [{ model: User, attributes: ["id", "role"], required: false }],
+    },
   ];
 }
 
@@ -170,18 +179,26 @@ exports.createEmployee = async (req, res) => {
       await transaction.rollback();
       return res.status(409).json({ message: "Login email already exists", field: "accountAccess.loginEmail" });
     }
+    const existingUserEmail = await User.findOne({
+      where: { email: loginEmail.toLowerCase() },
+      transaction,
+    });
+    if (existingUserEmail) {
+      await transaction.rollback();
+      return res.status(409).json({ message: "This email is already used as a login", field: "accountAccess.loginEmail" });
+    }
+
+    const role = ["admin", "hr", "manager", "designer", "developer", "employee"].includes(accountAccess.role)
+      ? accountAccess.role
+      : "employee";
 
     // Files
     const files = req.files || {};
     const avatarImage = files.avatarImage?.[0] || null;
     const appointment = files.appointmentLetter?.[0] || null;
-    if (!appointment) {
-      await transaction.rollback();
-      return res.status(422).json({ message: "appointmentLetter is required", field: "documents.appointmentLetter" });
-    }
 
     const avatarUrl = avatarImage ? `/files/${avatarImage.filename}` : null;
-    const appointmentLetterUrl = `/files/${appointment.filename}`;
+    const appointmentLetterUrl = appointment ? `/files/${appointment.filename}` : null;
     const salarySlipUrls = (files.salarySlips || []).map((f) => `/files/${f.filename}`);
     const relievingLetterUrls = (files.relivingLetter || []).map((f) => `/files/${f.filename}`);
     const experienceLetterUrls = (files.experienceLetter || []).map((f) => `/files/${f.filename}`);
@@ -233,9 +250,21 @@ exports.createEmployee = async (req, res) => {
       { transaction }
     );
 
+    const tempPassword = crypto.randomBytes(24).toString("hex");
+    const userPasswordHash = await hashedPassword(tempPassword);
+    const user = await User.create(
+      {
+        email: loginEmail.toLowerCase(),
+        password: userPasswordHash,
+        role,
+      },
+      { transaction }
+    );
+
     await EmployeeAccount.create(
       {
         employeeId: employee.id,
+        userId: user.id,
         loginEmail: loginEmail.toLowerCase(),
         status: "pending",
         slackId: accountAccess.slackId || null,
@@ -287,6 +316,140 @@ exports.getEmployeeById = async (req, res) => {
     return res.status(200).json(employee);
   } catch (error) {
     console.error("employees.getEmployeeById error:", error);
+    return res.status(500).json({ message: "Server error" });
+  }
+};
+
+function formatAttendanceStatus(status) {
+  if (status === "present") return "On Time";
+  if (status === "late") return "Late";
+  if (status === "absent") return "Absent";
+  return "On Time";
+}
+
+exports.getEmployeeAttendance = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const employee = await Employee.findByPk(id, { attributes: ["id"] });
+    if (!employee) return res.status(404).json({ message: "Employee not found" });
+
+    const limit = Math.min(parseInt(req.query.limit) || 50, 100);
+    const rows = await Attendance.findAll({
+      where: { employeeId: id },
+      order: [["checkIn", "DESC"]],
+      limit,
+    });
+
+    const items = rows.map((r) => {
+      const checkInDate = r.checkIn ? new Date(r.checkIn) : null;
+      const checkOutDate = r.checkOut ? new Date(r.checkOut) : null;
+      const dateStr = checkInDate
+        ? checkInDate.toLocaleDateString("en-US", { month: "short", day: "2-digit", year: "numeric" })
+        : "—";
+      const checkInStr = checkInDate
+        ? checkInDate.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: true })
+        : "—";
+      const checkOutStr = checkOutDate
+        ? checkOutDate.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: true })
+        : "—";
+      let breakMin = "—";
+      let hours = "—";
+      if (checkInDate && checkOutDate) {
+        const diffMs = checkOutDate.getTime() - checkInDate.getTime();
+        const totalMin = Math.floor(diffMs / 60000);
+        const breakMinutes = Math.min(30, Math.floor(totalMin * 0.05));
+        breakMin = `${String(breakMinutes).padStart(2, "0")}:00 Min`;
+        const workMin = totalMin - breakMinutes;
+        const h = Math.floor(workMin / 60);
+        const m = workMin % 60;
+        hours = `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")} Hrs`;
+      }
+      return {
+        id: r.id,
+        date: dateStr,
+        checkIn: checkInStr,
+        checkOut: checkOutStr,
+        break: breakMin,
+        hours,
+        status: formatAttendanceStatus(r.status),
+      };
+    });
+
+    return res.status(200).json({ items });
+  } catch (error) {
+    console.error("getEmployeeAttendance error:", error);
+    return res.status(500).json({ message: "Server error" });
+  }
+};
+
+exports.getEmployeeLeaves = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const employee = await Employee.findByPk(id, {
+      attributes: ["id", "firstName", "lastName"],
+    });
+    if (!employee) return res.status(404).json({ message: "Employee not found" });
+
+    const fullName = [employee.firstName, employee.lastName].filter(Boolean).join(" ").trim();
+    const limit = Math.min(parseInt(req.query.limit) || 50, 100);
+
+    const { Op } = require("sequelize");
+    const whereClause = fullName
+      ? { [Op.or]: [{ employeeId: id }, { employeeName: { [Op.iLike]: `%${fullName}%` } }] }
+      : { employeeId: id };
+    const rows = await Leave.findAll({
+      where: whereClause,
+      order: [["fromDate", "DESC"]],
+      limit,
+    });
+
+    const formatShort = (d) =>
+      d ? new Date(d).toLocaleDateString("en-US", { month: "short", day: "2-digit", year: "numeric" }) : "—";
+
+    const items = rows.map((r) => ({
+      id: r.id,
+      date: formatShort(r.fromDate),
+      duration: `${formatShort(r.fromDate)} - ${formatShort(r.toDate)}`,
+      days: r.days || "—",
+      manager: r.manager || "—",
+      status: r.status,
+    }));
+
+    return res.status(200).json({ items });
+  } catch (error) {
+    console.error("getEmployeeLeaves error:", error);
+    return res.status(500).json({ message: "Server error" });
+  }
+};
+
+exports.getEmployeeProjects = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const employee = await Employee.findByPk(id, { attributes: ["id"] });
+    if (!employee) return res.status(404).json({ message: "Employee not found" });
+
+    const rows = await Project.findAll({
+      where: { managerId: id },
+      order: [["startDate", "DESC"]],
+    });
+
+    const formatShort = (d) =>
+      d ? new Date(d).toLocaleDateString("en-US", { month: "short", day: "2-digit", year: "numeric" }) : "—";
+
+    const statusMap = { active: "In Process", completed: "Completed", "on-hold": "On Hold", cancelled: "Cancelled" };
+
+    const items = rows.map((r, idx) => ({
+      no: idx + 1,
+      id: r.id,
+      name: r.name || "—",
+      start: formatShort(r.startDate),
+      finish: formatShort(r.endDate) || "—",
+      status: statusMap[r.status] || r.status,
+    }));
+
+    return res.status(200).json({ items });
+  } catch (error) {
+    console.error("getEmployeeProjects error:", error);
     return res.status(500).json({ message: "Server error" });
   }
 };
@@ -410,14 +573,10 @@ exports.updateEmployee = async (req, res) => {
     // Update documents
     let docs = await EmployeeDocuments.findOne({ where: { employeeId: employee.id }, transaction });
     if (!docs) {
-      if (!appointment) {
-        await transaction.rollback();
-        return res.status(422).json({ message: "appointmentLetter is required", field: "documents.appointmentLetter" });
-      }
       docs = await EmployeeDocuments.create(
         {
           employeeId: employee.id,
-          appointmentLetterUrl: `/files/${appointment.filename}`,
+          appointmentLetterUrl: appointment ? `/files/${appointment.filename}` : null,
           salarySlipUrls: [],
           relievingLetterUrls: [],
           experienceLetterUrls: [],
@@ -485,6 +644,14 @@ exports.updateEmployee = async (req, res) => {
     if (accountAccess.githubId !== undefined) accPatch.githubId = accountAccess.githubId || null;
     if (Object.keys(accPatch).length) await account.update(accPatch, { transaction });
 
+    const newRole = ["admin", "hr", "manager", "designer", "developer", "employee"].includes(accountAccess.role)
+      ? accountAccess.role
+      : null;
+    if (newRole && account.userId) {
+      const user = await User.findByPk(account.userId, { transaction });
+      if (user) await user.update({ role: newRole }, { transaction });
+    }
+
     await transaction.commit();
 
     const updated = await Employee.findByPk(employee.id, { include: employeeIncludes() });
@@ -506,6 +673,10 @@ exports.deleteEmployee = async (req, res) => {
       return res.status(404).json({ message: "Employee not found" });
     }
 
+    const account = await EmployeeAccount.findOne({ where: { employeeId: id }, transaction });
+    if (account?.userId) {
+      await User.destroy({ where: { id: account.userId }, transaction });
+    }
     await InviteToken.destroy({ where: { employeeId: id }, transaction });
     await EmployeeAccount.destroy({ where: { employeeId: id }, transaction });
     await EmployeeDocuments.destroy({ where: { employeeId: id }, transaction });
@@ -529,6 +700,10 @@ exports.listEmployees = async (req, res) => {
     const search = (req.query.search || "").toString().trim().toLowerCase();
     const departmentIdsRaw = (req.query.departmentIds || "").toString().trim();
     const workMode = (req.query.workMode || "").toString().trim().toLowerCase(); // "office" | "remote"
+    const rolesRaw = (req.query.roles || "").toString().trim().toLowerCase();
+    const rolesArr = rolesRaw
+      ? rolesRaw.split(",").map((s) => s.trim()).filter(Boolean)
+      : [];
 
     const whereEmployee = {};
     const whereProfessional = {};
@@ -567,6 +742,13 @@ exports.listEmployees = async (req, res) => {
       officeLocationInclude.where = { name: { [Op.notILike]: "%remote%" } };
     }
 
+    const userInclude = { model: User, attributes: ["id", "role"], required: false };
+    if (rolesArr.length) {
+      userInclude.required = true;
+      userInclude.where = { role: { [Op.in]: rolesArr } };
+    }
+    const accountRequired = rolesArr.length > 0;
+
     const { count, rows } = await Employee.findAndCountAll({
       where: whereEmployee,
       include: [
@@ -580,7 +762,11 @@ exports.listEmployees = async (req, res) => {
           ],
         },
         { model: EmployeeDocuments, required: false },
-        { model: EmployeeAccount, required: false },
+        {
+          model: EmployeeAccount,
+          required: accountRequired,
+          include: [userInclude],
+        },
       ],
       order: [["createdAt", "DESC"]],
       limit,
